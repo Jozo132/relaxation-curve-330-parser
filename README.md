@@ -24,17 +24,23 @@ The **downloaded PDF** and **generated JSON data** are NOT committed to this rep
 
 ### Prerequisites
 
-- Node.js (for `npm run build`)
+- Node.js (for the npm workflow)
 - Python 3.10+
 
 ### Setup
 
 ```bash
 npm install
-python -m venv .venv
-source .venv/bin/activate      # On Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
 ```
+
+`npm install` now bootstraps the local `.venv` and installs the package in editable mode with
+development dependencies. To rerun the bootstrap explicitly later, use:
+
+```bash
+npm run install
+```
+
+The npm scripts (`build`, `test`, `lint`, `typecheck`) use the project `.venv` automatically.
 
 ### Run the build
 
@@ -56,6 +62,14 @@ generated/ist_report_330_relaxation_curves.json
 Generated metadata JSON:
 generated/ist_report_330_metadata.json
 ```
+
+Current extraction coverage:
+
+- Table data from parsed tables is extracted directly, including header-derived temperatures when available.
+- Figures 18 and 19 are automatically digitised for phosphor bronze, beryllium copper, and titanium alloy.
+- Figures 20 and 21 are automatically digitised for patented carbon steel, oil hardened and tempered steel, silicon-chromium steel, and 18Cr/8Ni stainless steel where those curves appear.
+- Figures 22 through 26 are automatically digitised for the supported exact materials on those pages, including Inconel 600, tungsten steel, 18Ni-Co-Mo maraging steel, A286, Inconel X-750, and Elgiloy where present.
+- Remaining unsupported figure/material combinations stay as explicit placeholders with warnings.
 
 ### Run tests
 

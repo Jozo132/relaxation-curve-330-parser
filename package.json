@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "Python-based parser for IST/SRAMA Report No. 330 relaxation curves",
   "scripts": {
-    "build": "python scripts/build.py",
-    "test": "pytest",
-    "lint": "ruff check .",
-    "typecheck": "mypy src"
+    "install": "node scripts/install.js",
+    "build": "node scripts/run-python.js scripts/build.py",
+    "test": "node scripts/run-python.js -m pytest",
+    "lint": "node scripts/run-python.js -m ruff check .",
+    "typecheck": "node scripts/run-python.js -m mypy src"
   },
   "license": "MIT"
 }

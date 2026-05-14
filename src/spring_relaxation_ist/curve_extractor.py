@@ -18,12 +18,14 @@ and extraction_method="placeholder" so downstream code can filter them.
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .config import IST_REPORT_URL, PACKAGE_VERSION
+from .figure_digitizer import FIGURE_PAGE_HINTS, digitize_supported_figure_curves
 from .pdf_parser import (
     detect_figure_references,
     detect_table_references,
@@ -62,12 +64,59 @@ KNOWN_MATERIALS: list[dict[str, Any]] = [
         "temperatures_C": [20, 100, 150, 200],
     },
     {
+        "material_id": "patented-carbon-steel",
+        "material_name": "Patented Carbon Steel",
+        "aliases": ["patented material", "patented"],
+        "family": "steel",
+        "figure_temperatures": [
+            {"figure_num": 20, "temperature_C": 100.0},
+            {"figure_num": 21, "temperature_C": 150.0},
+            {"figure_num": 22, "temperature_C": 200.0},
+        ],
+    },
+    {
+        "material_id": "oil-hardened-and-tempered-steel",
+        "material_name": "Oil Hardened and Tempered Steel",
+        "aliases": ["oil hardened and tempered", "oil hardened"],
+        "family": "steel",
+        "figure_temperatures": [
+            {"figure_num": 20, "temperature_C": 100.0},
+            {"figure_num": 21, "temperature_C": 150.0},
+            {"figure_num": 22, "temperature_C": 200.0},
+        ],
+    },
+    {
+        "material_id": "silicon-chromium-steel",
+        "material_name": "Silicon-Chromium Steel",
+        "aliases": ["silicon-chromium", "silicon chromium"],
+        "family": "steel",
+        "figure_temperatures": [
+            {"figure_num": 20, "temperature_C": 100.0},
+            {"figure_num": 21, "temperature_C": 150.0},
+            {"figure_num": 22, "temperature_C": 200.0},
+            {"figure_num": 23, "temperature_C": 250.0},
+        ],
+    },
+    {
         "material_id": "stainless-steel-302-304",
         "material_name": "Stainless Steel 302/304",
         "aliases": ["302", "304", "austenitic stainless"],
         "family": "stainless_steel",
         "figure_range": list(range(10, 13)),
         "temperatures_C": [20, 100, 150, 200, 250],
+    },
+    {
+        "material_id": "stainless-steel-18cr8ni",
+        "material_name": "18Cr/8Ni Stainless Steel",
+        "aliases": ["18cr/8ni stainless", "18cr 8ni stainless", "18/8 stainless"],
+        "family": "stainless_steel",
+        "figure_temperatures": [
+            {"figure_num": 21, "temperature_C": 150.0},
+            {"figure_num": 22, "temperature_C": 200.0},
+            {"figure_num": 23, "temperature_C": 250.0},
+            {"figure_num": 24, "temperature_C": 300.0},
+            {"figure_num": 25, "temperature_C": 350.0},
+        ],
     },
     {
         "material_id": "stainless-steel-17-7ph",
@@ -84,6 +133,12 @@ KNOWN_MATERIALS: list[dict[str, Any]] = [
         "family": "nickel_alloy",
         "figure_range": list(range(15, 18)),
         "temperatures_C": [20, 150, 200, 300, 400, 500],
+        "figure_temperatures": [
+            {"figure_num": 26, "temperature_C": 400.0},
+            {"figure_num": 27, "temperature_C": 450.0},
+            {"figure_num": 28, "temperature_C": 500.0},
+            {"figure_num": 29, "temperature_C": 550.0},
+        ],
     },
     {
         "material_id": "phosphor-bronze",
@@ -92,6 +147,9 @@ KNOWN_MATERIALS: list[dict[str, Any]] = [
         "family": "copper_alloy",
         "figure_range": [18, 19],
         "temperatures_C": [20, 100, 150],
+        "figure_temperatures": [
+            {"figure_num": 18, "temperature_C": 100.0},
+        ],
     },
     {
         "material_id": "beryllium-copper",
@@ -100,6 +158,10 @@ KNOWN_MATERIALS: list[dict[str, Any]] = [
         "family": "copper_alloy",
         "figure_range": [20, 21],
         "temperatures_C": [20, 100, 150, 200],
+        "figure_temperatures": [
+            {"figure_num": 18, "temperature_C": 100.0},
+            {"figure_num": 19, "temperature_C": 150.0},
+        ],
     },
     {
         "material_id": "titanium-alloy",
@@ -108,6 +170,35 @@ KNOWN_MATERIALS: list[dict[str, Any]] = [
         "family": "titanium",
         "figure_range": [22, 23],
         "temperatures_C": [20, 100, 150, 200],
+        "figure_temperatures": [
+            {"figure_num": 18, "temperature_C": 100.0},
+            {"figure_num": 19, "temperature_C": 150.0},
+        ],
+    },
+    {
+        "material_id": "tungsten-steel",
+        "material_name": "Tungsten Steel",
+        "aliases": ["tungsten steel"],
+        "family": "steel",
+        "figure_temperatures": [
+            {"figure_num": 23, "temperature_C": 250.0},
+            {"figure_num": 24, "temperature_C": 300.0},
+            {"figure_num": 25, "temperature_C": 350.0},
+            {"figure_num": 26, "temperature_C": 400.0},
+        ],
+    },
+    {
+        "material_id": "inconel-600",
+        "material_name": "Inconel 600",
+        "aliases": ["inconel 600"],
+        "family": "nickel_alloy",
+        "figure_temperatures": [
+            {"figure_num": 22, "temperature_C": 200.0},
+            {"figure_num": 23, "temperature_C": 250.0},
+            {"figure_num": 24, "temperature_C": 300.0},
+            {"figure_num": 25, "temperature_C": 350.0},
+            {"figure_num": 26, "temperature_C": 400.0},
+        ],
     },
     {
         "material_id": "elgiloy",
@@ -116,6 +207,29 @@ KNOWN_MATERIALS: list[dict[str, Any]] = [
         "family": "cobalt_alloy",
         "figure_range": [24, 25],
         "temperatures_C": [20, 100, 200, 300],
+        "figure_temperatures": [
+            {"figure_num": 25, "temperature_C": 350.0},
+        ],
+    },
+    {
+        "material_id": "18ni-co-mo-maraging-steel",
+        "material_name": "18Ni-Co-Mo Maraging Steel",
+        "aliases": ["18 ni-co-mo maraging", "maraging", "maraging steel"],
+        "family": "steel",
+        "figure_temperatures": [
+            {"figure_num": 24, "temperature_C": 300.0},
+            {"figure_num": 25, "temperature_C": 350.0},
+            {"figure_num": 26, "temperature_C": 400.0},
+        ],
+    },
+    {
+        "material_id": "a286",
+        "material_name": "A286",
+        "aliases": ["a 286", "a286"],
+        "family": "nickel_alloy",
+        "figure_temperatures": [
+            {"figure_num": 26, "temperature_C": 400.0},
+        ],
     },
     {
         "material_id": "nb-alloy",
@@ -124,8 +238,15 @@ KNOWN_MATERIALS: list[dict[str, Any]] = [
         "family": "nickel_alloy",
         "figure_range": [26, 27],
         "temperatures_C": [20, 200, 300, 400, 500],
+        "figure_temperatures": [],
     },
 ]
+
+STRICT_NUMBER_PATTERN = re.compile(r"^\s*-?\d+(?:[.,]\d+)?\s*%?\s*$")
+TEMPERATURE_PATTERN = re.compile(
+    r"(?<!\d)(-?\d+(?:[.,]\d+)?)\s*(?:°\s*C|deg(?:rees)?\.?\s*C|C)\b",
+    re.IGNORECASE,
+)
 
 
 def _make_placeholder_curve(
@@ -157,6 +278,21 @@ def _make_placeholder_curve(
     )
 
 
+def _iter_figure_temperature_pairs(mat_spec: dict[str, Any]) -> list[tuple[int, float]]:
+    if "figure_temperatures" in mat_spec:
+        figure_temperatures = mat_spec["figure_temperatures"]
+        return [
+            (int(item["figure_num"]), float(item["temperature_C"]))
+            for item in figure_temperatures
+        ]
+
+    return [
+        (int(figure_num), float(temperature_C))
+        for figure_num in mat_spec["figure_range"]
+        for temperature_C in mat_spec["temperatures_C"]
+    ]
+
+
 def _parse_table_row_to_point(row: list) -> RelaxationPoint | None:
     """
     Attempt to parse a table row into a RelaxationPoint.
@@ -165,14 +301,147 @@ def _parse_table_row_to_point(row: list) -> RelaxationPoint | None:
     """
     if not row or len(row) < 2:
         return None
-    try:
-        stress = float(str(row[0]).replace(",", ".").strip())
-        relax = float(str(row[1]).replace(",", ".").strip())
-        if stress > 0 and 0.0 <= relax <= 100.0:
-            return RelaxationPoint(stress_MPa=stress, relaxation_percent=relax)
-    except (ValueError, TypeError):
-        pass
+    stress = _parse_numeric_cell(row[0])
+    relax = _parse_numeric_cell(row[1])
+    if stress is not None and relax is not None and stress > 0 and 0.0 <= relax <= 100.0:
+        return RelaxationPoint(stress_MPa=stress, relaxation_percent=relax)
     return None
+
+
+def _parse_numeric_cell(cell: Any) -> float | None:
+    if isinstance(cell, int | float):
+        return float(cell)
+    if cell is None:
+        return None
+
+    text = str(cell).strip()
+    if not text or STRICT_NUMBER_PATTERN.fullmatch(text) is None:
+        return None
+
+    return float(text.replace("%", "").replace(",", ".").strip())
+
+
+def _parse_temperature_cell(cell: Any) -> float | None:
+    if cell is None:
+        return None
+
+    match = TEMPERATURE_PATTERN.search(str(cell))
+    if match is None:
+        return None
+
+    return float(match.group(1).replace(",", "."))
+
+
+def _format_temperature_token(temperature_C: float) -> str:
+    if temperature_C.is_integer():
+        return str(int(temperature_C))
+    return str(temperature_C).replace(".", "_")
+
+
+def _extract_temperature_columns(data: list[list[Any]]) -> dict[int, float]:
+    temperature_columns: dict[int, float] = {}
+
+    for row in data[:3]:
+        if not row:
+            continue
+
+        for column_index, cell in enumerate(row):
+            if column_index == 0:
+                continue
+
+            temperature_C = _parse_temperature_cell(cell)
+            if temperature_C is not None:
+                temperature_columns[column_index] = temperature_C
+
+    return temperature_columns
+
+
+def _extract_table_curves(
+    material_id: str,
+    table: dict[str, Any],
+) -> list[RelaxationCurve]:
+    data = table.get("data", [])
+    if not data:
+        return []
+
+    page = table["page"]
+    temperature_columns = _extract_temperature_columns(data)
+    if temperature_columns:
+        curves_by_temperature: dict[float, RelaxationCurve] = {}
+
+        for row in data[1:]:
+            if not row:
+                continue
+
+            stress = _parse_numeric_cell(row[0])
+            if stress is None or stress <= 0:
+                continue
+
+            for column_index, temperature_C in temperature_columns.items():
+                if column_index >= len(row):
+                    continue
+
+                relax = _parse_numeric_cell(row[column_index])
+                if relax is None or not 0.0 <= relax <= 100.0:
+                    continue
+
+                curve = curves_by_temperature.setdefault(
+                    temperature_C,
+                    RelaxationCurve(
+                        curve_id=(
+                            f"{material_id}_table_p{page}_"
+                            f"T{_format_temperature_token(temperature_C)}C"
+                        ),
+                        source_type="table",
+                        source_ref=f"Table (page {page})",
+                        page=page,
+                        temperature_C=temperature_C,
+                        confidence_level=None,
+                        points=[],
+                        extraction_method="table",
+                        extraction_confidence=0.6,
+                        warnings=[],
+                    ),
+                )
+                curve.points.append(
+                    RelaxationPoint(
+                        stress_MPa=stress,
+                        relaxation_percent=relax,
+                    )
+                )
+
+        parsed_curves = [curve for curve in curves_by_temperature.values() if curve.points]
+        for curve in parsed_curves:
+            curve.points.sort(key=lambda point: point.stress_MPa)
+        if parsed_curves:
+            return parsed_curves
+
+    fallback_points: list[RelaxationPoint] = []
+    for row in data[1:]:
+        point = _parse_table_row_to_point(row)
+        if point is not None:
+            fallback_points.append(point)
+
+    if not fallback_points:
+        return []
+
+    fallback_points.sort(key=lambda point: point.stress_MPa)
+    return [
+        RelaxationCurve(
+            curve_id=f"{material_id}_table_p{page}_T20C",
+            source_type="table",
+            source_ref=f"Table (page {page})",
+            page=page,
+            temperature_C=20.0,
+            confidence_level=None,
+            points=fallback_points,
+            extraction_method="table",
+            extraction_confidence=0.5,
+            warnings=[
+                "Temperature assumed 20°C — not confirmed from table header"
+            ],
+        )
+    ]
 
 
 def extract_curves(
@@ -205,6 +474,16 @@ def extract_curves(
         global_warnings.append(f"Table extraction failed: {exc}")
         raw_tables = []
         tables_detected = 0
+
+    try:
+        digitized_curves, digitization_warnings, digitization_failures = (
+            digitize_supported_figure_curves(pdf_path)
+        )
+        global_warnings.extend(digitization_warnings)
+        failed_items.extend(digitization_failures)
+    except Exception as exc:  # noqa: BLE001
+        global_warnings.append(f"Figure digitisation bootstrap failed: {exc}")
+        digitized_curves = {}
 
     # --- Count figure references across all pages ---
     all_text = "\n".join(pages_text.values())
@@ -244,57 +523,34 @@ def extract_curves(
             if mat_name_lower not in header_text and not alias_match:
                 continue
 
-            # Parse data rows
-            for row in data[1:]:
-                pt = _parse_table_row_to_point(row)
-                if pt is not None:
-                    # We don't know temperature from the table header alone —
-                    # use 20°C as the ambient default and warn
-                    curve_id = (
-                        f"{mat_spec['material_id']}_table_p{tbl['page']}_T20C"
-                    )
-                    existing_ids = [c.curve_id for c in mat_curves]
-                    if curve_id not in existing_ids:
-                        mat_curves.append(
-                            RelaxationCurve(
-                                curve_id=curve_id,
-                                source_type="table",
-                                source_ref=f"Table (page {tbl['page']})",
-                                page=tbl["page"],
-                                temperature_C=20.0,
-                                confidence_level=None,
-                                points=[pt],
-                                extraction_method="table",
-                                extraction_confidence=0.5,
-                                warnings=[
-                                    "Temperature assumed 20°C — not confirmed from table header"
-                                ],
-                            )
-                        )
-                    else:
-                        for c in mat_curves:
-                            if c.curve_id == curve_id:
-                                c.points.append(pt)
+            mat_curves.extend(_extract_table_curves(mat_spec["material_id"], tbl))
+
+        mat_curves.extend(digitized_curves.get(mat_spec["material_id"], []))
+        existing_curve_ids = {curve.curve_id for curve in mat_curves}
 
         # Create placeholder curves for figures (cannot be auto-digitised)
-        for fig_num in mat_spec["figure_range"]:
-            for temp_C in mat_spec["temperatures_C"]:
-                curve = _make_placeholder_curve(
-                    mat_spec["material_id"],
-                    fig_num,
-                    float(temp_C),
-                    page_hint=0,
-                    warnings=mat_warnings,
-                )
-                mat_curves.append(curve)
-                failed_items.append(
-                    {
-                        "material": mat_spec["material_name"],
-                        "source_ref": f"Figure {fig_num}",
-                        "temperature_C": temp_C,
-                        "reason": "Figure not auto-digitised — requires calibrated image processing",
-                    }
-                )
+        for fig_num, temp_C in _iter_figure_temperature_pairs(mat_spec):
+            curve_id = f"{mat_spec['material_id']}_fig{fig_num}_T{int(temp_C)}C"
+            if curve_id in existing_curve_ids:
+                continue
+
+            curve = _make_placeholder_curve(
+                mat_spec["material_id"],
+                fig_num,
+                temp_C,
+                page_hint=FIGURE_PAGE_HINTS.get(fig_num, 0),
+                warnings=mat_warnings,
+            )
+            mat_curves.append(curve)
+            existing_curve_ids.add(curve_id)
+            failed_items.append(
+                {
+                    "material": mat_spec["material_name"],
+                    "source_ref": f"Figure {fig_num}",
+                    "temperature_C": temp_C,
+                    "reason": "Figure not auto-digitised — requires calibrated image processing",
+                }
+            )
 
         materials.append(
             Material(
@@ -308,9 +564,8 @@ def extract_curves(
 
     if not global_warnings:
         global_warnings.append(
-            "Relaxation figure curves (Figures 1–29) are present as placeholder entries only. "
-            "Automated pixel-level digitisation was not attempted as it requires calibrated "
-            "image processing with human validation. No values were fabricated."
+            "A subset of stress-relaxation figures is automatically digitised from raster pages. "
+            "Unsupported figure/material combinations remain placeholder entries; no values were fabricated for those placeholders."
         )
 
     # Build dataset
