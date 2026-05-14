@@ -1,0 +1,12 @@
+{
+  "name": "relaxation-curve-330-parser",
+  "version": "1.0.0",
+  "description": "Python-based parser for IST/SRAMA Report No. 330 relaxation curves",
+  "scripts": {
+    "build": "python scripts/build.py",
+    "test": "pytest",
+    "lint": "ruff check .",
+    "typecheck": "mypy src"
+  },
+  "license": "MIT"
+}

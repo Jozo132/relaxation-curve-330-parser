@@ -1,0 +1,60 @@
+{
+  "dataset": "Synthetic test dataset",
+  "source": {
+    "title": "Synthetic Test Data",
+    "report_number": "test",
+    "url": "http://example.com/test.pdf",
+    "local_pdf": "data/test.pdf",
+    "sha256": "abc123",
+    "generated_at": "2026-01-01T00:00:00+00:00"
+  },
+  "license_notice": {
+    "code_license": "MIT",
+    "data_notice": "Synthetic test data only."
+  },
+  "materials": [
+    {
+      "material_id": "test-steel",
+      "material_name": "Test Steel",
+      "aliases": ["test-alloy"],
+      "family": "steel",
+      "curves": [
+        {
+          "curve_id": "test-steel_T20C",
+          "source_type": "table",
+          "source_ref": "Table 1",
+          "page": 1,
+          "temperature_C": 20.0,
+          "confidence_level": "expected",
+          "points": [
+            {"stress_MPa": 100.0, "relaxation_percent": 1.0},
+            {"stress_MPa": 200.0, "relaxation_percent": 2.0},
+            {"stress_MPa": 300.0, "relaxation_percent": 3.5},
+            {"stress_MPa": 400.0, "relaxation_percent": 5.0}
+          ],
+          "extraction_method": "table",
+          "extraction_confidence": 0.9,
+          "warnings": []
+        },
+        {
+          "curve_id": "test-steel_T100C",
+          "source_type": "table",
+          "source_ref": "Table 2",
+          "page": 2,
+          "temperature_C": 100.0,
+          "confidence_level": "expected",
+          "points": [
+            {"stress_MPa": 100.0, "relaxation_percent": 2.0},
+            {"stress_MPa": 200.0, "relaxation_percent": 4.0},
+            {"stress_MPa": 300.0, "relaxation_percent": 7.0},
+            {"stress_MPa": 400.0, "relaxation_percent": 10.0}
+          ],
+          "extraction_method": "table",
+          "extraction_confidence": 0.9,
+          "warnings": []
+        }
+      ]
+    }
+  ],
+  "warnings": []
+}
