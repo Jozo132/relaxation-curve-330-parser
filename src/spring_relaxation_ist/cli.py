@@ -7,7 +7,7 @@ import sys
 
 import click
 
-from .config import CURVES_JSON_PATH, GENERATED_DIR, METADATA_JSON_PATH, PDF_PATH
+from .config import CURVES_JSON_PATH, FIGURE_PREVIEWS_DIR, GENERATED_DIR, METADATA_JSON_PATH, PDF_PATH
 
 
 @click.group()
@@ -33,6 +33,7 @@ def extract() -> None:
     """Extract relaxation curves from the PDF and write JSON output."""
     from .curve_extractor import extract_curves
     from .downloader import download_pdf, sha256_of_file
+    from .figure_digitizer import generate_supported_figure_previews
 
     if not PDF_PATH.exists():
         click.echo("PDF not found. Downloading...")
@@ -49,6 +50,15 @@ def extract() -> None:
     with open(METADATA_JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(metadata.model_dump(), f, indent=2, ensure_ascii=False)
     click.echo(f"Generated metadata JSON:\n{METADATA_JSON_PATH}")
+
+    preview_paths, preview_warnings = generate_supported_figure_previews(
+        PDF_PATH,
+        FIGURE_PREVIEWS_DIR,
+    )
+    if preview_paths:
+        click.echo(f"Generated figure overlay previews:\n{FIGURE_PREVIEWS_DIR}")
+    for warning in preview_warnings:
+        click.echo(f"Preview warning: {warning}", err=True)
 
 
 @main.command()

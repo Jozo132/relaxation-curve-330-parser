@@ -227,3 +227,4 @@ generated/*.svg
 generated/*.parquet
 .cache/
 .venv/
+generated/figure_previews/*.png

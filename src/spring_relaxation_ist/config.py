@@ -8,6 +8,7 @@ ROOT_DIR = Path(__file__).parent.parent.parent
 # Data and output directories
 DATA_DIR = ROOT_DIR / "data"
 GENERATED_DIR = ROOT_DIR / "generated"
+FIGURE_PREVIEWS_DIR = GENERATED_DIR / "figure_previews"
 
 # PDF source
 IST_REPORT_URL = (

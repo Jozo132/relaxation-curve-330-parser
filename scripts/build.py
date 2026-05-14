@@ -16,12 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from spring_relaxation_ist.config import (
     CURVES_JSON_PATH,
+    FIGURE_PREVIEWS_DIR,
     GENERATED_DIR,
     METADATA_JSON_PATH,
     PDF_PATH,
 )
 from spring_relaxation_ist.curve_extractor import extract_curves
 from spring_relaxation_ist.downloader import download_pdf, sha256_of_file
+from spring_relaxation_ist.figure_digitizer import generate_supported_figure_previews
 
 
 def main() -> None:
@@ -40,9 +42,18 @@ def main() -> None:
     with open(METADATA_JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(metadata.model_dump(), f, indent=2, ensure_ascii=False)
 
+    preview_paths, preview_warnings = generate_supported_figure_previews(
+        PDF_PATH,
+        FIGURE_PREVIEWS_DIR,
+    )
+
     # Step 7: Print generated file paths
     print(f"\nGenerated relaxation curve JSON:\n{CURVES_JSON_PATH}")
     print(f"\nGenerated metadata JSON:\n{METADATA_JSON_PATH}")
+    if preview_paths:
+        print(f"\nGenerated figure overlay previews:\n{FIGURE_PREVIEWS_DIR}")
+    for warning in preview_warnings:
+        print(f"Preview warning: {warning}")
 
 
 if __name__ == "__main__":
