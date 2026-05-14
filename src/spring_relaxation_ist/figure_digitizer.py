@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import atexit
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from scipy import ndimage
 
+from .config import GENERATED_DIR
 from .schema import RelaxationCurve, RelaxationPoint
 
 Y_AXIS_MAX = 15.0
+PDF_RENDER_SCALE = 3.0
+COARSE_RENDER_SCALE = 2.0
 PREVIEW_AXIS_COLOR = (255, 140, 0, 255)
 PREVIEW_LEGEND_BACKGROUND = (255, 255, 255, 224)
 PREVIEW_CURVE_COLORS: tuple[tuple[int, int, int, int], ...] = (
@@ -214,6 +219,25 @@ SUPPORTED_FIGURE_SPECS: tuple[FigureDigitizerSpec, ...] = (
     ),
 )
 
+_PAGE_IMAGE_CACHE: dict[
+    tuple[str, int, float, tuple[int, int, int, int] | None],
+    np.ndarray[Any, np.dtype[np.uint8]],
+] = {}
+_FIGURE_ANALYSIS_CACHE: dict[tuple[str, int], FigureAnalysisResult] = {}
+_PDF_DOCUMENT_CACHE: dict[str, Any] = {}
+_RENDER_CACHE_DIR = GENERATED_DIR / "figure_render_cache"
+
+
+def _close_cached_pdf_documents() -> None:
+    for document in _PDF_DOCUMENT_CACHE.values():
+        try:
+            document.close()
+        except Exception:  # noqa: BLE001
+            continue
+
+
+atexit.register(_close_cached_pdf_documents)
+
 
 def digitize_supported_figure_curves(
     pdf_path: Path,
@@ -276,7 +300,12 @@ def _analyze_figure(
     pdf_path: Path,
     spec: FigureDigitizerSpec,
 ) -> FigureAnalysisResult:
-    grayscale = _render_page_grayscale(pdf_path, spec.page)
+    cache_key = (str(pdf_path.resolve()), spec.figure_num)
+    cached = _FIGURE_ANALYSIS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    grayscale = _render_figure_grayscale(pdf_path, spec.page)
     dark = grayscale < 170
     bounds = _detect_plot_bounds(dark)
     calibration = _calibrate_axes(dark, bounds, spec.x_max)
@@ -286,6 +315,7 @@ def _analyze_figure(
         expected_count=len(spec.material_ids_top_to_bottom),
         reference_fraction=spec.reference_fraction,
     )
+    tracks = _reorder_tracks_for_spec(spec, tracks)
 
     if len(tracks) != len(spec.material_ids_top_to_bottom):
         raise ValueError(
@@ -315,7 +345,7 @@ def _analyze_figure(
             ],
         )
 
-    return FigureAnalysisResult(
+    result = FigureAnalysisResult(
         spec=spec,
         page_image=grayscale,
         plot_bounds=bounds,
@@ -323,6 +353,8 @@ def _analyze_figure(
         tracks=tracks,
         curves=curves,
     )
+    _FIGURE_ANALYSIS_CACHE[cache_key] = result
+    return result
 
 
 def _render_figure_preview(analysis: FigureAnalysisResult) -> Image.Image:
@@ -358,22 +390,122 @@ def _render_figure_preview(analysis: FigureAnalysisResult) -> Image.Image:
     return preview.convert("RGB")
 
 
-def _render_page_grayscale(pdf_path: Path, page_number: int) -> np.ndarray[Any, np.dtype[np.uint8]]:
+def _render_figure_grayscale(pdf_path: Path, page_number: int) -> np.ndarray[Any, np.dtype[np.uint8]]:
+    if COARSE_RENDER_SCALE >= PDF_RENDER_SCALE:
+        return _render_page_grayscale(pdf_path, page_number, scale=PDF_RENDER_SCALE)
+
+    coarse_grayscale = _render_page_grayscale(pdf_path, page_number, scale=COARSE_RENDER_SCALE)
+    coarse_dark = coarse_grayscale < 170
+    coarse_bounds = _detect_plot_bounds(coarse_dark)
+    clip_rect = _clip_rect_from_bounds(pdf_path, page_number, coarse_bounds, COARSE_RENDER_SCALE)
+    return _render_page_grayscale(pdf_path, page_number, scale=PDF_RENDER_SCALE, clip_rect=clip_rect)
+
+
+def _render_page_grayscale(
+    pdf_path: Path,
+    page_number: int,
+    scale: float,
+    clip_rect: tuple[float, float, float, float] | None = None,
+) -> np.ndarray[Any, np.dtype[np.uint8]]:
+    clip_key: tuple[int, int, int, int] | None = None
+    if clip_rect is not None:
+        clip_key = (
+            int(round(clip_rect[0] * 1000.0)),
+            int(round(clip_rect[1] * 1000.0)),
+            int(round(clip_rect[2] * 1000.0)),
+            int(round(clip_rect[3] * 1000.0)),
+        )
+
+    cache_key = (str(pdf_path.resolve()), page_number, scale, clip_key)
+    cached = _PAGE_IMAGE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    cache_path = _render_cache_path(pdf_path, page_number, scale, clip_key)
+    if cache_path.exists():
+        grayscale = np.load(cache_path, allow_pickle=False)
+        _PAGE_IMAGE_CACHE[cache_key] = grayscale
+        return grayscale
+
     try:
         import fitz  # type: ignore[import]
     except ImportError as exc:
         raise ImportError("PyMuPDF (fitz) is required: pip install pymupdf") from exc
 
-    with fitz.open(str(pdf_path)) as document:
-        page = document[page_number - 1]
-        pixmap = page.get_pixmap(
-            matrix=fitz.Matrix(4, 4),
-            colorspace=fitz.csGRAY,
-            alpha=False,
-        )
+    document = _get_pdf_document(pdf_path)
+
+    page = document[page_number - 1]
+    pixmap = page.get_pixmap(
+        matrix=fitz.Matrix(scale, scale),
+        colorspace=fitz.csGRAY,
+        alpha=False,
+        clip=None if clip_rect is None else fitz.Rect(*clip_rect),
+    )
 
     image = np.frombuffer(pixmap.samples, dtype=np.uint8)
-    return image.reshape(pixmap.height, pixmap.width)
+    grayscale = image.reshape(pixmap.height, pixmap.width)
+    _PAGE_IMAGE_CACHE[cache_key] = grayscale
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(cache_path, grayscale, allow_pickle=False)
+    return grayscale
+
+
+def _render_cache_path(
+    pdf_path: Path,
+    page_number: int,
+    scale: float,
+    clip_key: tuple[int, int, int, int] | None,
+) -> Path:
+    stat_result = pdf_path.stat()
+    cache_token = "|".join(
+        [
+            str(pdf_path.resolve()),
+            str(stat_result.st_size),
+            str(stat_result.st_mtime_ns),
+            str(page_number),
+            f"{scale:.3f}",
+            "full" if clip_key is None else ",".join(str(value) for value in clip_key),
+        ]
+    )
+    digest = hashlib.sha1(cache_token.encode("utf-8"), usedforsecurity=False).hexdigest()
+    return _RENDER_CACHE_DIR / f"{digest}.npy"
+
+
+def _get_pdf_document(pdf_path: Path) -> Any:
+    try:
+        import fitz  # type: ignore[import]
+    except ImportError as exc:
+        raise ImportError("PyMuPDF (fitz) is required: pip install pymupdf") from exc
+
+    document_key = str(pdf_path.resolve())
+    document = _PDF_DOCUMENT_CACHE.get(document_key)
+    if document is None:
+        document = fitz.open(document_key)
+        _PDF_DOCUMENT_CACHE[document_key] = document
+    return document
+
+
+def _clip_rect_from_bounds(
+    pdf_path: Path,
+    page_number: int,
+    bounds: tuple[int, int, int, int],
+    scale: float,
+) -> tuple[float, float, float, float]:
+    document = _get_pdf_document(pdf_path)
+    page = document[page_number - 1]
+    page_rect = page.rect
+
+    left, top, right, bottom = bounds
+    plot_width = right - left
+    plot_height = bottom - top
+    margin_x = max(24, plot_width // 8)
+    margin_y = max(24, plot_height // 8)
+
+    clip_left = max((left - margin_x) / scale, float(page_rect.x0))
+    clip_top = max((top - margin_y) / scale, float(page_rect.y0))
+    clip_right = min((right + margin_x) / scale, float(page_rect.x1))
+    clip_bottom = min((bottom + margin_y) / scale, float(page_rect.y1))
+    return clip_left, clip_top, clip_right, clip_bottom
 
 
 def _draw_preview_axes(
@@ -567,18 +699,18 @@ def _extract_plot_mask(
     plot_mask[:, :6] = False
     plot_mask[-6:, :] = False
 
-    labels, component_count = ndimage.label(plot_mask)
-    if component_count == 0:
+    labels_array, component_count_int = _label_components(plot_mask)
+    if component_count_int == 0:
         raise ValueError("no digitisation components found inside plot")
 
-    component_sizes = np.bincount(labels.ravel())
+    component_sizes = np.bincount(labels_array.ravel())
     minimum_size = max(16, (plot_mask.shape[0] * plot_mask.shape[1]) // 8000)
     keep = component_sizes >= minimum_size
     keep[0] = False
 
     # Bridge short horizontal gaps so broken dashed traces remain trackable.
-    filtered = keep[labels]
-    return ndimage.binary_closing(filtered, structure=np.ones((1, 9), dtype=bool))
+    filtered = keep[labels_array]
+    return ndimage.binary_closing(filtered, structure=np.ones((1, 9), dtype=bool)).astype(bool)
 
 
 def _trace_monotonic_curves(
@@ -586,14 +718,88 @@ def _trace_monotonic_curves(
     expected_count: int,
     reference_fraction: float,
 ) -> list[list[tuple[int, float]]]:
+    reference_x = int(plot_mask.shape[1] * reference_fraction)
+    if plot_mask.shape[1] <= 256:
+        try:
+            tracks = _trace_curves_separately(plot_mask, expected_count, reference_fraction)
+        except ValueError:
+            tracks = []
+
+        if _tracks_are_distinct_enough(
+            tracks,
+            expected_count=expected_count,
+            reference_x=reference_x,
+            tolerance=max(5.0, plot_mask.shape[0] * 0.012),
+        ):
+            return tracks
+
+    return _trace_monotonic_curves_legacy(plot_mask, expected_count, reference_fraction)
+
+
+def _trace_curves_separately(
+    plot_mask: np.ndarray[Any, np.dtype[np.bool_]],
+    expected_count: int,
+    reference_fraction: float,
+) -> list[list[tuple[int, float]]]:
+    width = plot_mask.shape[1]
+    column_centers_by_x = [_column_centers(plot_mask[:, column_index]) for column_index in range(width)]
+    reference_x = int(width * reference_fraction)
+    minimum_span = max(12, width // 6)
+    viable_tracks: list[list[tuple[int, float]]] = []
+    for seed_x, seed_y in _seed_curve_candidates(
+        column_centers_by_x,
+        plot_mask.shape[0],
+        reference_x,
+        expected_count,
+    ):
+        track = _trace_curve_from_seed(column_centers_by_x, plot_mask.shape[0], seed_x, seed_y)
+        if not _is_viable_curve_track(track, minimum_span=minimum_span):
+            continue
+        if any(
+            _tracks_are_similar(track, existing, reference_x=reference_x, tolerance=max(6.0, plot_mask.shape[0] * 0.01))
+            for existing in viable_tracks
+        ):
+            continue
+        viable_tracks.append(track)
+
+    if not viable_tracks:
+        raise ValueError("no viable curve tracks found")
+
+    candidates = [
+        track
+        for track in viable_tracks
+        if track[0][0] <= reference_x <= track[-1][0]
+    ]
+    if len(candidates) < expected_count:
+        candidates = viable_tracks
+
+    selected = _select_distinct_tracks(
+        candidates,
+        expected_count=expected_count,
+        reference_x=reference_x,
+        y_tolerance=max(5.0, plot_mask.shape[0] * 0.012),
+    )
+    if len(selected) != expected_count:
+        raise ValueError(f"expected {expected_count} curve tracks, found {len(selected)}")
+
+    ordered = sorted(selected, key=lambda track: _track_y_at(track, reference_x))
+    return [_smooth_track(track) for track in ordered]
+
+
+def _trace_monotonic_curves_legacy(
+    plot_mask: np.ndarray[Any, np.dtype[np.bool_]],
+    expected_count: int,
+    reference_fraction: float,
+) -> list[list[tuple[int, float]]]:
     tracks: list[dict[str, Any]] = []
     width = plot_mask.shape[1]
+    column_centers_by_x = [_column_centers(plot_mask[:, column_index]) for column_index in range(width)]
     spawn_limit = int(width * 0.60)
     max_x_gap = max(6, width // 35)
     max_y_jump = max(20.0, plot_mask.shape[0] * 0.10)
 
     for column_index in range(width):
-        centers = _column_centers(plot_mask[:, column_index])
+        centers = column_centers_by_x[column_index]
         used_indices: set[int] = set()
 
         for track in tracks:
@@ -636,8 +842,8 @@ def _trace_monotonic_curves(
                     }
                 )
 
-    minimum_points = max(40, width // 10)
-    minimum_span = max(80, width // 6)
+    minimum_points = max(8, width // 10)
+    minimum_span = max(12, width // 6)
     viable_tracks = [
         track["points"]
         for track in tracks
@@ -646,6 +852,13 @@ def _trace_monotonic_curves(
     ]
     if not viable_tracks:
         raise ValueError("no viable curve tracks found")
+
+    if len(viable_tracks) > expected_count:
+        viable_tracks = _merge_track_fragments(
+            viable_tracks,
+            max_gap=max(40, width // 18),
+            max_y_deviation=max(80.0, plot_mask.shape[0] * 0.08),
+        )
 
     reference_x = int(width * reference_fraction)
     candidates = [
@@ -664,7 +877,415 @@ def _trace_monotonic_curves(
     if len(selected) != expected_count:
         raise ValueError(f"expected {expected_count} curve tracks, found {len(selected)}")
 
-    return sorted(selected, key=lambda track: _track_y_at(track, reference_x))
+    ordered = sorted(selected, key=lambda track: _track_y_at(track, reference_x))
+    return [_smooth_track(track) for track in ordered]
+
+
+def _tracks_are_distinct_enough(
+    tracks: list[list[tuple[int, float]]],
+    expected_count: int,
+    reference_x: int,
+    tolerance: float,
+) -> bool:
+    if len(tracks) != expected_count:
+        return False
+
+    ordered = sorted(tracks, key=lambda track: _track_y_at(track, reference_x))
+    for left_track, right_track in zip(ordered, ordered[1:], strict=False):
+        if abs(_track_y_at(left_track, reference_x) - _track_y_at(right_track, reference_x)) <= tolerance:
+            return False
+
+    return True
+
+
+def _seed_curve_candidates(
+    column_centers_by_x: list[list[float]],
+    plot_height: int,
+    reference_x: int,
+    expected_count: int,
+) -> list[tuple[int, float]]:
+    width = len(column_centers_by_x)
+    search_radius = max(12, width // 20)
+    candidates: list[tuple[int, float]] = []
+
+    for offset in range(search_radius + 1):
+        column_indices = [reference_x] if offset == 0 else [reference_x - offset, reference_x + offset]
+        for column_index in column_indices:
+            if not 0 <= column_index < width:
+                continue
+
+            centers = column_centers_by_x[column_index]
+            if len(centers) >= expected_count:
+                candidates.extend((column_index, center) for center in sorted(centers)[:expected_count])
+                break
+        if candidates:
+            break
+
+    samples: list[tuple[int, float]] = []
+
+    for offset in range(search_radius + 1):
+        column_indices = [reference_x] if offset == 0 else [reference_x - offset, reference_x + offset]
+        for column_index in column_indices:
+            if not 0 <= column_index < width:
+                continue
+            for center in column_centers_by_x[column_index]:
+                samples.append((column_index, center))
+
+    if not samples:
+        raise ValueError("no curve seed candidates found")
+
+    y_tolerance = max(5.0, plot_height * 0.015)
+    clusters: list[list[tuple[int, float]]] = []
+    for sample in sorted(samples, key=lambda item: item[1]):
+        if not clusters:
+            clusters.append([sample])
+            continue
+
+        cluster_center = float(np.mean([point[1] for point in clusters[-1]]))
+        if abs(sample[1] - cluster_center) <= y_tolerance:
+            clusters[-1].append(sample)
+            continue
+
+        clusters.append([sample])
+
+    selected_clusters = sorted(
+        clusters,
+        key=lambda cluster: (
+            len(cluster),
+            -min(abs(point[0] - reference_x) for point in cluster),
+        ),
+        reverse=True,
+    )[: max(expected_count * 2, expected_count + 2)]
+
+    if len(selected_clusters) < expected_count:
+        for offset in range(search_radius + 1):
+            column_indices = [reference_x] if offset == 0 else [reference_x - offset, reference_x + offset]
+            for column_index in column_indices:
+                if not 0 <= column_index < width:
+                    continue
+                centers = column_centers_by_x[column_index]
+                if len(centers) >= expected_count:
+                    return [(column_index, center) for center in centers]
+
+    for cluster in selected_clusters:
+        representative_x, _ = min(cluster, key=lambda point: abs(point[0] - reference_x))
+        representative_y = float(np.mean([point[1] for point in cluster]))
+        if any(abs(existing_y - representative_y) <= y_tolerance for _, existing_y in candidates):
+            continue
+        candidates.append((int(representative_x), representative_y))
+
+    return sorted(candidates, key=lambda item: item[1])[: max(expected_count * 4, expected_count + 4)]
+
+
+def _tracks_are_similar(
+    left_track: list[tuple[int, float]],
+    right_track: list[tuple[int, float]],
+    reference_x: int,
+    tolerance: float,
+) -> bool:
+    overlap_left = max(left_track[0][0], right_track[0][0])
+    overlap_right = min(left_track[-1][0], right_track[-1][0])
+    if overlap_left >= overlap_right:
+        return False
+
+    probe_x = min(max(reference_x, overlap_left), overlap_right)
+    return (
+        abs(_track_y_at(left_track, probe_x) - _track_y_at(right_track, probe_x)) <= tolerance
+        and abs(left_track[0][0] - right_track[0][0]) <= 24
+        and abs(left_track[-1][0] - right_track[-1][0]) <= 24
+    )
+
+
+def _trace_curve_from_seed(
+    column_centers_by_x: list[list[float]],
+    plot_height: int,
+    seed_x: int,
+    seed_y: float,
+) -> list[tuple[int, float]]:
+    prefer_dashed_mode = _seed_has_dashed_pattern(column_centers_by_x, seed_x, seed_y)
+    left_track = _trace_curve_direction(
+        column_centers_by_x,
+        plot_height,
+        seed_x,
+        seed_y,
+        direction=-1,
+        prefer_dashed_mode=prefer_dashed_mode,
+    )
+    right_track = _trace_curve_direction(
+        column_centers_by_x,
+        plot_height,
+        seed_x,
+        seed_y,
+        direction=1,
+        prefer_dashed_mode=prefer_dashed_mode,
+    )
+    return _combine_tracks(list(reversed(left_track)), right_track)
+
+
+def _trace_curve_direction(
+    column_centers_by_x: list[list[float]],
+    plot_height: int,
+    seed_x: int,
+    seed_y: float,
+    direction: int,
+    prefer_dashed_mode: bool,
+) -> list[tuple[int, float]]:
+    width = len(column_centers_by_x)
+    max_gap = max(12, min(72, width // 20))
+    max_y_deviation = max(18.0, plot_height * 0.08)
+    track = [(seed_x, seed_y)]
+    gap_history: list[int] = []
+    segment_history: list[int] = []
+    current_segment_length = 1
+
+    while True:
+        next_point = _select_direction_candidate(
+            column_centers_by_x,
+            track=track,
+            direction=direction,
+            max_gap=max_gap,
+            max_y_deviation=max_y_deviation,
+            gap_history=gap_history,
+            segment_history=segment_history,
+            current_segment_length=current_segment_length,
+            prefer_dashed_mode=prefer_dashed_mode,
+        )
+        if next_point is None:
+            break
+
+        gap_length = abs(next_point[0] - track[-1][0]) - 1
+        if gap_length > 0:
+            gap_history.append(gap_length)
+            segment_history.append(current_segment_length)
+            current_segment_length = 1
+        else:
+            current_segment_length += 1
+
+        track.append(next_point)
+
+    return track
+
+
+def _select_direction_candidate(
+    column_centers_by_x: list[list[float]],
+    track: list[tuple[int, float]],
+    direction: int,
+    max_gap: int,
+    max_y_deviation: float,
+    gap_history: list[int],
+    segment_history: list[int],
+    current_segment_length: int,
+    prefer_dashed_mode: bool,
+) -> tuple[int, float] | None:
+    width = len(column_centers_by_x)
+    current_x, current_y = track[-1]
+    expected_gradient = _estimate_track_gradient(track)
+    best_overall_candidate: tuple[int, float] | None = None
+    best_overall_score: float | None = None
+
+    for step in range(1, max_gap + 2):
+        candidate_x = current_x + (direction * step)
+        if not 0 <= candidate_x < width:
+            break
+
+        candidate_centers = column_centers_by_x[candidate_x]
+        if not candidate_centers:
+            continue
+
+        best_step_candidate: tuple[int, float] | None = None
+        best_step_score: float | None = None
+
+        for center in candidate_centers:
+            delta_x = float(candidate_x - current_x)
+            predicted_y = current_y + (expected_gradient * delta_x)
+            projection_error = abs(center - predicted_y)
+            if projection_error > max_y_deviation:
+                continue
+
+            candidate_gradient = (center - current_y) / delta_x
+            score = projection_error + (18.0 * abs(candidate_gradient - expected_gradient))
+            score += _direction_turn_penalty(
+                expected_gradient,
+                candidate_gradient,
+                point_count=len(track),
+            )
+            score += _dash_pattern_penalty(
+                gap_length=step - 1,
+                gap_history=gap_history,
+                segment_history=segment_history,
+                current_segment_length=current_segment_length,
+            )
+
+            if best_step_score is None or score < best_step_score:
+                best_step_candidate = (candidate_x, float(center))
+                best_step_score = score
+
+        if best_step_candidate is not None:
+            if not prefer_dashed_mode and not gap_history:
+                return best_step_candidate
+
+            if best_step_score is not None and (
+                best_overall_score is None or best_step_score < best_overall_score
+            ):
+                best_overall_candidate = best_step_candidate
+                best_overall_score = best_step_score
+
+    return best_overall_candidate
+
+
+def _seed_has_dashed_pattern(
+    column_centers_by_x: list[list[float]],
+    seed_x: int,
+    seed_y: float,
+) -> bool:
+    width = len(column_centers_by_x)
+    search_radius = max(18, min(96, width // 20))
+    tolerance = 8.0
+    hits: list[bool] = []
+
+    for column_index in range(max(0, seed_x - search_radius), min(width, seed_x + search_radius + 1)):
+        hits.append(any(abs(center - seed_y) <= tolerance for center in column_centers_by_x[column_index]))
+
+    if not hits or all(hits):
+        return False
+
+    true_runs: list[int] = []
+    false_runs: list[int] = []
+    current_value = hits[0]
+    current_length = 1
+    for hit in hits[1:]:
+        if hit == current_value:
+            current_length += 1
+            continue
+
+        if current_value:
+            true_runs.append(current_length)
+        else:
+            false_runs.append(current_length)
+        current_value = hit
+        current_length = 1
+
+    if current_value:
+        true_runs.append(current_length)
+    else:
+        false_runs.append(current_length)
+
+    if len(true_runs) < 2 or not false_runs:
+        return False
+
+    coverage = sum(true_runs) / float(len(hits))
+    return coverage < 0.8 and max(false_runs) >= 3
+
+
+def _estimate_track_gradient(track: list[tuple[int, float]]) -> float:
+    if len(track) < 2:
+        return 0.0
+
+    sample = track[-min(len(track), 6) :]
+    x_values = np.array([point[0] for point in sample], dtype=float)
+    y_values = np.array([point[1] for point in sample], dtype=float)
+    if np.allclose(x_values, x_values[0]):
+        return 0.0
+
+    gradients = np.diff(y_values) / np.diff(x_values)
+    return float(np.median(gradients))
+
+
+def _direction_turn_penalty(
+    expected_gradient: float,
+    candidate_gradient: float,
+    point_count: int,
+) -> float:
+    if point_count < 3:
+        return 0.0
+
+    if abs(expected_gradient) < 0.05 or abs(candidate_gradient) < 0.05:
+        return 0.0
+
+    if np.sign(expected_gradient) != np.sign(candidate_gradient):
+        return 30.0 + (15.0 * abs(candidate_gradient - expected_gradient))
+
+    return 0.0
+
+
+def _dash_pattern_penalty(
+    gap_length: int,
+    gap_history: list[int],
+    segment_history: list[int],
+    current_segment_length: int,
+) -> float:
+    if gap_length == 0:
+        return 0.0
+
+    penalty = 2.0 * gap_length
+    if gap_history:
+        target_gap = float(np.median(np.array(gap_history[-3:], dtype=float)))
+        gap_error = abs(gap_length - target_gap) / max(1.0, target_gap)
+        penalty += max(0.0, (gap_error - 0.20) * 18.0)
+        if gap_error <= 0.20:
+            penalty -= 1.0
+
+    if gap_history and segment_history:
+        recent_segments = np.array(segment_history[-min(len(segment_history), 3) :], dtype=float)
+        recent_gaps = np.array(gap_history[-min(len(gap_history), 3) :], dtype=float)
+        target_ratio = float(np.median(recent_segments / np.maximum(recent_gaps, 1.0)))
+        current_ratio = float(current_segment_length) / float(max(gap_length, 1))
+        ratio_error = abs(current_ratio - target_ratio) / max(abs(target_ratio), 0.25)
+        penalty += max(0.0, (ratio_error - 0.20) * 12.0)
+        if ratio_error <= 0.20:
+            penalty -= 1.0
+
+    return max(0.0, penalty)
+
+
+def _is_viable_curve_track(
+    track: list[tuple[int, float]],
+    minimum_span: int,
+) -> bool:
+    if len(track) < max(8, minimum_span // 2):
+        return False
+
+    span = track[-1][0] - track[0][0]
+    if span < minimum_span:
+        return False
+
+    density = len(track) / max(1, span + 1)
+    return density >= 0.35
+
+
+def _label_components(
+    plot_mask: np.ndarray[Any, np.dtype[np.bool_]],
+) -> tuple[np.ndarray[Any, np.dtype[np.int32]], int]:
+    labels_raw, component_count = cast(
+        tuple[np.ndarray[Any, Any], int],
+        ndimage.label(plot_mask),
+    )
+    return np.asarray(labels_raw, dtype=np.int32), int(component_count)
+
+
+def _select_distinct_tracks(
+    tracks: list[list[tuple[int, float]]],
+    expected_count: int,
+    reference_x: int,
+    y_tolerance: float,
+) -> list[list[tuple[int, float]]]:
+    ordered_tracks = sorted(
+        tracks,
+        key=lambda track: (track[-1][0] - track[0][0], len(track)),
+        reverse=True,
+    )
+
+    selected: list[list[tuple[int, float]]] = []
+    for track in ordered_tracks:
+        track_y = _track_y_at(track, reference_x)
+        if any(abs(track_y - _track_y_at(existing, reference_x)) <= y_tolerance for existing in selected):
+            continue
+
+        selected.append(track)
+        if len(selected) == expected_count:
+            return selected
+
+    return ordered_tracks[:expected_count]
 
 
 def _track_to_points(
@@ -716,6 +1337,154 @@ def _track_y_at(track: list[tuple[int, float]], reference_x: int) -> float:
     x_values = np.array([point[0] for point in track], dtype=float)
     y_values = np.array([point[1] for point in track], dtype=float)
     return float(np.interp(reference_x, x_values, y_values))
+
+
+def _reorder_tracks_for_spec(
+    spec: FigureDigitizerSpec,
+    tracks: list[list[tuple[int, float]]],
+) -> list[list[tuple[int, float]]]:
+    if spec.figure_num != 26 or len(tracks) != 5:
+        return tracks
+
+    upper_tracks = tracks[:3]
+    lower_tracks = tracks[3:]
+    tungsten_track = max(upper_tracks, key=lambda track: (_track_span(track), _track_density(track)))
+    dashed_tracks = [track for track in upper_tracks if track is not tungsten_track]
+    a286_track = min(dashed_tracks, key=lambda track: (_track_span(track), -_track_density(track)))
+    inconel_600_track = next(track for track in dashed_tracks if track is not a286_track)
+    return [a286_track, inconel_600_track, tungsten_track, *lower_tracks]
+
+
+def _track_span(track: list[tuple[int, float]]) -> int:
+    return int(track[-1][0] - track[0][0])
+
+
+def _track_density(track: list[tuple[int, float]]) -> float:
+    span = max(1, _track_span(track) + 1)
+    return len(track) / float(span)
+
+
+def _merge_track_fragments(
+    tracks: list[list[tuple[int, float]]],
+    max_gap: int,
+    max_y_deviation: float,
+) -> list[list[tuple[int, float]]]:
+    merged_tracks = [list(track) for track in tracks]
+
+    while True:
+        best_pair: tuple[int, int] | None = None
+        best_score: float | None = None
+
+        for left_index, left_track in enumerate(merged_tracks):
+            for right_index, right_track in enumerate(merged_tracks):
+                if left_index == right_index:
+                    continue
+
+                score = _track_merge_score(
+                    left_track,
+                    right_track,
+                    max_gap=max_gap,
+                    max_y_deviation=max_y_deviation,
+                )
+                if score is None:
+                    continue
+
+                if best_score is None or score < best_score:
+                    best_pair = (left_index, right_index)
+                    best_score = score
+
+        if best_pair is None:
+            break
+
+        left_index, right_index = best_pair
+        merged_track = _combine_tracks(merged_tracks[left_index], merged_tracks[right_index])
+        merged_tracks[left_index] = merged_track
+        del merged_tracks[right_index]
+
+    return merged_tracks
+
+
+def _track_merge_score(
+    left_track: list[tuple[int, float]],
+    right_track: list[tuple[int, float]],
+    max_gap: int,
+    max_y_deviation: float,
+) -> float | None:
+    left_end_x = left_track[-1][0]
+    right_start_x = right_track[0][0]
+    right_end_x = right_track[-1][0]
+
+    if right_end_x <= left_end_x:
+        return None
+
+    gap = right_start_x - left_end_x
+    if gap > max_gap or gap < -max_gap:
+        return None
+
+    predicted_y = _predict_track_value(left_track, right_start_x)
+    deviation = abs(predicted_y - right_track[0][1])
+    if deviation > max_y_deviation:
+        return None
+
+    extension = right_end_x - left_end_x
+    if extension < max(10, max_gap // 2):
+        return None
+
+    overlap_penalty = max(0, -gap)
+    return deviation + (0.2 * overlap_penalty)
+
+
+def _combine_tracks(
+    left_track: list[tuple[int, float]],
+    right_track: list[tuple[int, float]],
+) -> list[tuple[int, float]]:
+    combined: dict[int, list[float]] = {}
+    for x_coord, y_coord in left_track + right_track:
+        combined.setdefault(int(x_coord), []).append(float(y_coord))
+
+    return [
+        (x_coord, float(sum(y_values) / len(y_values)))
+        for x_coord, y_values in sorted(combined.items())
+    ]
+
+
+def _predict_track_value(track: list[tuple[int, float]], target_x: int) -> float:
+    if len(track) == 1:
+        return float(track[-1][1])
+
+    sample = track[-min(len(track), 12) :]
+    x_values = np.array([point[0] for point in sample], dtype=float)
+    y_values = np.array([point[1] for point in sample], dtype=float)
+
+    if np.allclose(x_values, x_values[0]):
+        return float(y_values[-1])
+
+    slope, intercept = np.polyfit(x_values, y_values, 1)
+    return float((slope * float(target_x)) + intercept)
+
+
+def _smooth_track(track: list[tuple[int, float]]) -> list[tuple[int, float]]:
+    if len(track) < 9:
+        return track
+
+    x_values = np.array([point[0] for point in track], dtype=float)
+    y_values = np.array([point[1] for point in track], dtype=float)
+    median_window = min(15, len(track) - (1 - len(track) % 2))
+    if median_window >= 3:
+        y_values = ndimage.median_filter(y_values, size=median_window, mode="nearest")
+
+    sigma = max(1.2, len(track) / 180.0)
+    y_values = ndimage.gaussian_filter1d(y_values, sigma=sigma, mode="nearest")
+
+    if y_values[-1] <= y_values[0]:
+        y_values = np.minimum.accumulate(y_values)
+    else:
+        y_values = np.maximum.accumulate(y_values)
+
+    return [
+        (int(round(x_coord)), float(y_coord))
+        for x_coord, y_coord in zip(x_values, y_values, strict=True)
+    ]
 
 
 def _longest_dark_run(values: np.ndarray[Any, np.dtype[np.bool_]]) -> tuple[int, int] | None:

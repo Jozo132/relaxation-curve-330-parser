@@ -228,3 +228,4 @@ generated/*.parquet
 .cache/
 .venv/
 generated/figure_previews/*.png
+generated/figure_render_cache/*.npy
