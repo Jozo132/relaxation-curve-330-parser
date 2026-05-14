@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spring-relaxation-ist"
+version = "1.0.0"
+description = "Local parser for IST/SRAMA Report 330 spring relaxation curves"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "pydantic>=2.0",
+    "pymupdf>=1.23",
+    "pdfplumber>=0.10",
+    "Pillow>=10.0",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.1",
+    "mypy>=1.5",
+    "types-requests",
+]
+
+[project.scripts]
+spring-relaxation-ist = "spring_relaxation_ist.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
