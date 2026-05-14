@@ -21,6 +21,7 @@ PDF_PATH = DATA_DIR / PDF_FILENAME
 # Output files
 CURVES_JSON_PATH = GENERATED_DIR / "ist_report_330_relaxation_curves.json"
 METADATA_JSON_PATH = GENERATED_DIR / "ist_report_330_metadata.json"
+CURVE_CALIBRATION_PATH = DATA_DIR / "curve_calibration_overrides.json"
 
 # Package version
 PACKAGE_VERSION = "1.0.0"

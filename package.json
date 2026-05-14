@@ -5,6 +5,7 @@
   "scripts": {
     "install": "node scripts/install.js",
     "build": "node scripts/run-python.js scripts/build.py",
+    "calibrate": "node scripts/run-python.js -m spring_relaxation_ist.cli calibrate",
     "test": "node scripts/run-python.js -m pytest",
     "lint": "node scripts/run-python.js -m ruff check .",
     "typecheck": "node scripts/run-python.js -m mypy src"

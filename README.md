@@ -42,6 +42,17 @@ npm run install
 
 The npm scripts (`build`, `test`, `lint`, `typecheck`) use the project `.venv` automatically.
 
+To launch the manual curve calibration UI, use:
+
+```bash
+npm run calibrate
+```
+
+The calibration tool opens a Python notebook-style UI with one tab per supported figure,
+lets you select each legend item, and lets you place manual start and end points by clicking
+the overlay image. `Apply` writes the saved overrides to `data/curve_calibration_overrides.json`
+and refreshes the generated figure previews. `Cancel` exits without saving changes.
+
 ### Run the build
 
 ```bash
@@ -97,6 +108,9 @@ python -m spring_relaxation_ist download
 
 # Extract curves
 python -m spring_relaxation_ist extract
+
+# Open the manual calibration UI
+python -m spring_relaxation_ist.cli calibrate
 
 # Validate generated JSON
 python -m spring_relaxation_ist validate

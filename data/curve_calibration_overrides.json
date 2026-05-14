@@ -1,0 +1,325 @@
+{
+  "figures": {
+    "18": {
+      "materials": {
+        "beryllium-copper": {
+          "start": {
+            "stress_MPa": 197.7,
+            "relaxation_percent": 0.392
+          },
+          "end": {
+            "stress_MPa": 645.4,
+            "relaxation_percent": 11.174
+          },
+          "line_style": "solid"
+        },
+        "phosphor-bronze": {
+          "start": {
+            "stress_MPa": 203.0,
+            "relaxation_percent": 4.406
+          },
+          "end": {
+            "stress_MPa": 517.2,
+            "relaxation_percent": 9.356
+          },
+          "line_style": "solid"
+        },
+        "titanium-alloy": {
+          "start": {
+            "stress_MPa": 199.5,
+            "relaxation_percent": 1.76
+          },
+          "end": {
+            "stress_MPa": 700.0,
+            "relaxation_percent": 3.488
+          },
+          "line_style": "solid"
+        }
+      }
+    },
+    "19": {
+      "materials": {
+        "beryllium-copper": {
+          "start": {
+            "stress_MPa": 192.7,
+            "relaxation_percent": 6.419
+          },
+          "end": {
+            "stress_MPa": 719.2,
+            "relaxation_percent": 11.95
+          },
+          "line_style": "solid"
+        },
+        "titanium-alloy": {
+          "start": {
+            "stress_MPa": 198.1,
+            "relaxation_percent": 1.054
+          },
+          "end": {
+            "stress_MPa": 711.4,
+            "relaxation_percent": 13.46
+          },
+          "line_style": "solid"
+        }
+      }
+    },
+    "20": {
+      "materials": {
+        "oil-hardened-and-tempered-steel": {
+          "end": {
+            "stress_MPa": 908.0,
+            "relaxation_percent": 13.702
+          },
+          "line_style": "solid"
+        },
+        "patented-carbon-steel": {
+          "end": {
+            "stress_MPa": 810.4,
+            "relaxation_percent": 12.752
+          },
+          "line_style": "solid"
+        },
+        "silicon-chromium-steel": {
+          "end": {
+            "stress_MPa": 991.7,
+            "relaxation_percent": 11.31
+          },
+          "line_style": "solid"
+        }
+      }
+    },
+    "21": {
+      "materials": {
+        "oil-hardened-and-tempered-steel": {
+          "end": {
+            "stress_MPa": 790.9,
+            "relaxation_percent": 13.955
+          },
+          "line_style": "solid"
+        },
+        "patented-carbon-steel": {
+          "end": {
+            "stress_MPa": 770.9,
+            "relaxation_percent": 15.0
+          },
+          "line_style": "solid"
+        },
+        "silicon-chromium-steel": {
+          "end": {
+            "stress_MPa": 935.2,
+            "relaxation_percent": 11.206
+          },
+          "line_style": "solid"
+        },
+        "stainless-steel-18cr8ni": {
+          "line_style": "solid"
+        }
+      }
+    },
+    "22": {
+      "materials": {
+        "inconel-600": {
+          "start": {
+            "stress_MPa": 201.1,
+            "relaxation_percent": 0.204
+          },
+          "end": {
+            "stress_MPa": 600.8,
+            "relaxation_percent": 1.006
+          },
+          "line_style": "dashed"
+        },
+        "oil-hardened-and-tempered-steel": {
+          "end": {
+            "stress_MPa": 707.2,
+            "relaxation_percent": 15.0
+          },
+          "line_style": "solid"
+        },
+        "patented-carbon-steel": {
+          "end": {
+            "stress_MPa": 504.0,
+            "relaxation_percent": 13.331
+          },
+          "line_style": "solid"
+        },
+        "silicon-chromium-steel": {
+          "start": {
+            "stress_MPa": 194.4,
+            "relaxation_percent": 0.546
+          },
+          "end": {
+            "stress_MPa": 869.8,
+            "relaxation_percent": 14.164
+          },
+          "line_style": "solid"
+        },
+        "stainless-steel-18cr8ni": {
+          "start": {
+            "stress_MPa": 195.9,
+            "relaxation_percent": 0.888
+          },
+          "end": {
+            "stress_MPa": 890.5,
+            "relaxation_percent": 7.043
+          },
+          "line_style": "solid"
+        }
+      }
+    },
+    "23": {
+      "materials": {
+        "inconel-600": {
+          "start": {
+            "stress_MPa": 199.7,
+            "relaxation_percent": 0.297
+          },
+          "end": {
+            "stress_MPa": 596.5,
+            "relaxation_percent": 2.442
+          }
+        },
+        "silicon-chromium-steel": {
+          "end": {
+            "stress_MPa": 744.3,
+            "relaxation_percent": 13.966
+          }
+        },
+        "stainless-steel-18cr8ni": {
+          "end": {
+            "stress_MPa": 887.1,
+            "relaxation_percent": 9.393
+          }
+        }
+      }
+    },
+    "24": {
+      "materials": {
+        "18ni-co-mo-maraging-steel": {
+          "start": {
+            "stress_MPa": 203.4,
+            "relaxation_percent": 1.984
+          },
+          "end": {
+            "stress_MPa": 1000.0,
+            "relaxation_percent": 2.641
+          }
+        },
+        "inconel-600": {
+          "start": {
+            "stress_MPa": 203.5,
+            "relaxation_percent": 1.389
+          },
+          "end": {
+            "stress_MPa": 598.2,
+            "relaxation_percent": 3.012
+          },
+          "line_style": "dashed"
+        },
+        "stainless-steel-18cr8ni": {
+          "end": {
+            "stress_MPa": 914.4,
+            "relaxation_percent": 11.424
+          }
+        },
+        "tungsten-steel": {
+          "start": {
+            "stress_MPa": 202.6,
+            "relaxation_percent": 1.136
+          },
+          "line_style": "solid"
+        }
+      }
+    },
+    "25": {
+      "materials": {
+        "18ni-co-mo-maraging-steel": {
+          "start": {
+            "stress_MPa": 174.8,
+            "relaxation_percent": 4.184
+          },
+          "end": {
+            "stress_MPa": 1000.0,
+            "relaxation_percent": 5.223
+          },
+          "line_style": "solid"
+        },
+        "elgiloy": {
+          "start": {
+            "stress_MPa": 224.4,
+            "relaxation_percent": 2.361
+          },
+          "end": {
+            "stress_MPa": 592.5,
+            "relaxation_percent": 3.626
+          },
+          "line_style": "dashed"
+        },
+        "inconel-600": {
+          "start": {
+            "stress_MPa": 198.4,
+            "relaxation_percent": 4.579
+          },
+          "end": {
+            "stress_MPa": 586.8,
+            "relaxation_percent": 5.104
+          },
+          "line_style": "dashed"
+        },
+        "stainless-steel-18cr8ni": {
+          "end": {
+            "stress_MPa": 608.1,
+            "relaxation_percent": 15.0
+          }
+        },
+        "tungsten-steel": {
+          "start": {
+            "stress_MPa": 200.8,
+            "relaxation_percent": 3.56
+          },
+          "line_style": "solid"
+        }
+      }
+    },
+    "26": {
+      "materials": {
+        "a286": {
+          "start": {
+            "stress_MPa": 206.7,
+            "relaxation_percent": 7.332
+          },
+          "end": {
+            "stress_MPa": 600.1,
+            "relaxation_percent": 11.423
+          },
+          "line_style": "dashed"
+        },
+        "inconel-600": {
+          "start": {
+            "stress_MPa": 209.1,
+            "relaxation_percent": 7.111
+          },
+          "end": {
+            "stress_MPa": 597.1,
+            "relaxation_percent": 10.501
+          },
+          "line_style": "dashed"
+        },
+        "inconel-x750": {
+          "line_style": "dashed"
+        },
+        "tungsten-steel": {
+          "start": {
+            "stress_MPa": 204.8,
+            "relaxation_percent": 6.57
+          },
+          "end": {
+            "stress_MPa": 697.1,
+            "relaxation_percent": 11.128
+          },
+          "line_style": "solid"
+        }
+      }
+    }
+  }
+}

@@ -7,7 +7,14 @@ import sys
 
 import click
 
-from .config import CURVES_JSON_PATH, FIGURE_PREVIEWS_DIR, GENERATED_DIR, METADATA_JSON_PATH, PDF_PATH
+from .config import (
+    CURVE_CALIBRATION_PATH,
+    CURVES_JSON_PATH,
+    FIGURE_PREVIEWS_DIR,
+    GENERATED_DIR,
+    METADATA_JSON_PATH,
+    PDF_PATH,
+)
 
 
 @click.group()
@@ -62,6 +69,29 @@ def extract() -> None:
 
 
 @main.command()
+def calibrate() -> None:
+    """Open a manual calibration UI for curve start and end points."""
+    from .calibration_ui import launch_calibration_ui
+    from .downloader import download_pdf
+
+    if not PDF_PATH.exists():
+        click.echo("PDF not found. Downloading...")
+        download_pdf()
+
+    try:
+        applied = launch_calibration_ui(PDF_PATH)
+    except RuntimeError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    if applied:
+        click.echo(f"Saved curve calibration overrides:\n{CURVE_CALIBRATION_PATH}")
+        click.echo(f"Updated figure overlay previews:\n{FIGURE_PREVIEWS_DIR}")
+    else:
+        click.echo("Calibration cancelled.")
+
+
+@main.command()
 def validate() -> None:
     """Validate the generated JSON files against the schema."""
     from .schema import MetadataOutput, RelaxationDataset
@@ -111,3 +141,7 @@ def predict(material: str, temperature: float, stress: float, json_path: str) ->
     if result.get("warnings"):
         for w in result["warnings"]:
             click.echo(f"Warning: {w}", err=True)
+
+
+if __name__ == "__main__":
+    main()
